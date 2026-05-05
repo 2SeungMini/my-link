@@ -42,51 +42,31 @@
 
 ---
 
-## 3. 데이터베이스 모델링 (Firebase Firestore)
+## 3. 데이터베이스 모델링 (NoSQL - Firestore)
 
-Firebase Firestore를 기반으로 한 NoSQL 컬렉션 구조는 다음과 같습니다.
+### 3.1. Users Collection
 
-```typescript
-// 1. Users Collection
-// 유저의 기본 정보와 고유 마이링크 주소를 저장합니다.
-interface User {
-  uid: string;                 // Firebase Auth UID (문서 ID로 사용)
-  email: string;               // 구글 이메일
-  username: string;            // 고유 아이디 (예: @username)
-  displayName: string;         // 화면에 표시될 이름 (닉네임)
-  bio: string;                 // 짧은 소개글
-  profileImageUrl: string;     // 프로필 이미지 URL
-  theme: 'light' | 'dark';     // 테마 설정
-  createdAt: timestamp;        // 가입일
+```json
+{
+  "uid": "google_uid_123",
+  "email": "user@example.com",
+  "displayName": "caesiumy", // URL Slug (Unique). Init from email prefix.
+  "username": "Caesium Y", // 프로필 표시 이름 (Real Name). Init from Google Name.
+  "photoURL": "https://lh3.googleusercontent.com/...", // Google 프로필 이미지
+  "bio": "Frontend Developer",
+  "createdAt": "timestamp"
 }
+```
+*Note: `displayName`의 유일성을 보장하기 위해 별도 인덱스나 로직이 필요함.*
 
-// 2. Links Collection
-// 유저가 생성한 링크 목록을 관리합니다.
-interface Link {
-  id: string;                  // 자동 생성되는 링크 문서 ID
-  uid: string;                 // 소유자(User) UID
-  title: string;               // 링크 제목
-  url: string;                 // 대상 URL
-  faviconUrl: string;          // 자동 추출된 파비콘 URL
-  createdAt: timestamp;        // 생성일
-}
+### 3.2. Links Sub-collection (`users/{uid}/links`)
 
-// 3. SocialLinks Collection
-// 하단에 배치되는 아이콘 형태의 소셜 전용 링크
-interface SocialLink {
-  id: string;                  // 소셜 링크 문서 ID
-  uid: string;                 // 소유자(User) UID
-  platform: 'github' | 'instagram' | 'twitter' | 'youtube'; // 플랫폼 종류
-  url: string;                 // 프로필 URL
-}
-
-// 4. Analytics Collection (Phase 2)
-// 페이지 방문 및 링크 클릭 통계
-interface Analytics {
-  id: string;                  // 통계 데이터 문서 ID
-  uid: string;                 // 페이지 소유자(User) UID
-  type: 'page_view' | 'link_click'; // 이벤트 타입
-  linkId?: string;             // (클릭 시) 클릭된 링크 ID
-  timestamp: timestamp;        // 발생 시간
+```json
+{
+  "id": "link_uuid",
+  "title": "My Blog",
+  "url": "https://blog.example.com",
+  "faviconUrl": "https://blog.example.com/favicon.ico", // 앞서 정의된 파비콘 기능
+  "createdAt": "timestamp"
 }
 ```
