@@ -1,26 +1,90 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --bg-color: #f4f4f0;
+  --text-color: #111111;
+  --border-color: #000000;
+  
+  --color-yellow: #ffe600;
+  --color-pink: #ff66b2;
+  --color-green: #ccff00;
+  --color-blue: #00e5ff;
+  --color-purple: #b266ff;
+  --color-white: #ffffff;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background-color: var(--bg-color);
+  color: var(--text-color);
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  padding: 0;
+  margin: 0;
+  min-height: 100vh;
 }
+
+/* Neobrutalism Utilities */
+.neo-border {
+  border: 3px solid var(--border-color);
+}
+
+.neo-shadow {
+  box-shadow: 6px 6px 0px var(--border-color);
+}
+
+.neo-shadow-sm {
+  box-shadow: 4px 4px 0px var(--border-color);
+}
+
+.neo-shadow-hover {
+  transition: all 0.2s ease-in-out;
+}
+
+.neo-shadow-hover:hover {
+  transform: translate(-2px, -2px);
+  box-shadow: 8px 8px 0px var(--border-color);
+}
+
+.neo-shadow-hover:active {
+  transform: translate(4px, 4px);
+  box-shadow: 2px 2px 0px var(--border-color);
+}
+
+.neo-card {
+  border: 3px solid var(--border-color);
+  box-shadow: 6px 6px 0px var(--border-color);
+  border-radius: 4px;
+  background-color: var(--color-white);
+  padding: 1.5rem;
+}
+
+.neo-btn {
+  border: 3px solid var(--border-color);
+  box-shadow: 4px 4px 0px var(--border-color);
+  border-radius: 4px;
+  font-weight: bold;
+  padding: 0.75rem 1.5rem;
+  cursor: pointer;
+  text-transform: uppercase;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease-in-out;
+}
+
+.neo-btn:hover {
+  transform: translate(-2px, -2px);
+  box-shadow: 6px 6px 0px var(--border-color);
+}
+
+.neo-btn:active {
+  transform: translate(2px, 2px);
+  box-shadow: 2px 2px 0px var(--border-color);
+}
+
+/* Custom color utility classes */
+.bg-neo-yellow { background-color: var(--color-yellow); }
+.bg-neo-pink { background-color: var(--color-pink); }
+.bg-neo-green { background-color: var(--color-green); }
+.bg-neo-blue { background-color: var(--color-blue); }
+.bg-neo-purple { background-color: var(--color-purple); }
+.bg-neo-white { background-color: var(--color-white); }
