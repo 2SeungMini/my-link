@@ -14,8 +14,16 @@ const firebaseConfig = {
   measurementId: process.env.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID
 };
 
+// 빌드 타임에 환경 변수가 비어있는 상황(Pre-render)을 방어하기 위한 코드
+const isConfigValid = !!firebaseConfig.apiKey && firebaseConfig.apiKey !== "undefined";
+
+const activeConfig = isConfigValid ? firebaseConfig : {
+  ...firebaseConfig,
+  apiKey: "dummy-key-for-build-prerendering-protection"
+};
+
 // SSR(Server-Side Rendering) 환경 대응 및 중복 초기화 방지
-const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
+const app = getApps().length > 0 ? getApp() : initializeApp(activeConfig);
 
 const auth = getAuth(app);
 const db = getFirestore(app);
