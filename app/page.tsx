@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { AlertDialog } from "@base-ui/react/alert-dialog";
 import { Button } from "@base-ui/react/button";
 import { Menu } from "@base-ui/react/menu";
@@ -12,14 +12,19 @@ import {
   signOut,
   type User,
 } from "firebase/auth";
-import { collection, doc, onSnapshot, orderBy, query } from "firebase/firestore";
+import { collection, onSnapshot, orderBy, query } from "firebase/firestore";
 
-import { profile } from "@/data/profile";
+import { profile as defaultProfile } from "@/data/profile";
 import {
   addLink,
   deleteLink,
   ensureUserProfile,
+  getProfileDocRef,
+  getProfileRouteKey,
+  recordLinkClick,
   type LinkItem,
+  type UserProfile,
+  updateDisplayName,
   updateLink,
   updateUserBio,
 } from "@/lib/db";
@@ -50,24 +55,22 @@ function formatUpdatedAt(value: unknown) {
   }).format(date);
 }
 
-function getEmailHandle(user: User) {
-  const emailName = user.email?.split("@")[0];
-  return `@${emailName || user.uid.slice(0, 8)}`;
-}
-
-function getDisplayName(user: User) {
+function getFallbackDisplayName(user: User) {
   return user.displayName || user.email?.split("@")[0] || "사용자";
 }
 
 export default function Home() {
   const [user, setUser] = useState<User | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+  const [nameEditing, setNameEditing] = useState(false);
+  const [nameDraft, setNameDraft] = useState("");
+  const [nameSaving, setNameSaving] = useState(false);
+  const [bioEditing, setBioEditing] = useState(false);
+  const [bioDraft, setBioDraft] = useState("");
+  const [bioSaving, setBioSaving] = useState(false);
   const [links, setLinks] = useState<LinkItem[]>([]);
   const [loading, setLoading] = useState(false);
-  const [bio, setBio] = useState("");
-  const [bioDraft, setBioDraft] = useState("");
-  const [bioEditing, setBioEditing] = useState(false);
-  const [bioSaving, setBioSaving] = useState(false);
   const [addFormOpen, setAddFormOpen] = useState(false);
   const [newTitle, setNewTitle] = useState("");
   const [newUrl, setNewUrl] = useState("");
@@ -80,10 +83,13 @@ export default function Home() {
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
-  const userName = user ? getDisplayName(user) : "";
-  const userHandle = user ? getEmailHandle(user) : "";
-  const userAvatarUrl = user?.photoURL || profile.avatarUrl;
-  const visibleBio = bio || "한 줄 자기소개를 입력해주세요.";
+  const displayName =
+    userProfile?.displayName || (user ? getFallbackDisplayName(user) : "");
+  const routeKey =
+    userProfile?.routeKey || (user ? getProfileRouteKey(displayName, user.uid) : "");
+  const handle = routeKey ? `@${routeKey}` : "";
+  const avatarUrl = userProfile?.photoURL || user?.photoURL || defaultProfile.avatarUrl;
+  const visibleBio = userProfile?.bio || "한 줄 자기소개를 입력해주세요.";
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
@@ -94,9 +100,11 @@ export default function Home() {
       setDeleteTarget(null);
       setErrorMessage("");
       setStatusMessage("");
-      setBio("");
-      setBioDraft("");
+      setNameEditing(false);
+      setNameDraft("");
       setBioEditing(false);
+      setBioDraft("");
+      setUserProfile(null);
       setLinks([]);
       setLoading(Boolean(currentUser));
 
@@ -105,6 +113,11 @@ export default function Home() {
           displayName: currentUser.displayName,
           email: currentUser.email,
           photoURL: currentUser.photoURL,
+        }).catch((error) => {
+          console.error("User profile setup error:", error);
+          setErrorMessage(
+            "공개 페이지 연결 정보를 만들지 못했습니다. Firestore Rules를 확인해주세요.",
+          );
         });
       }
     });
@@ -116,10 +129,9 @@ export default function Home() {
     if (!user) return;
 
     const unsubscribe = onSnapshot(
-      doc(db, "users", user.uid),
+      getProfileDocRef(user.uid),
       (snapshot) => {
-        const nextBio = snapshot.data()?.bio;
-        setBio(typeof nextBio === "string" ? nextBio : "");
+        setUserProfile(snapshot.exists() ? (snapshot.data() as UserProfile) : null);
       },
       (error) => {
         console.error("User profile loading error:", error);
@@ -180,12 +192,12 @@ export default function Home() {
   }
 
   async function copyMyPageLink() {
-    if (!user) return;
-
-    const pageUrl = `${window.location.origin}/?user=${user.uid}`;
+    if (!routeKey) return;
 
     try {
-      await navigator.clipboard.writeText(pageUrl);
+      await navigator.clipboard.writeText(
+        `${window.location.origin}/${encodeURIComponent(routeKey)}`,
+      );
       setErrorMessage("");
       setStatusMessage("내 페이지 링크를 복사했습니다.");
     } catch (error) {
@@ -196,15 +208,46 @@ export default function Home() {
   }
 
   function startBioEdit() {
-    setBioDraft(bio);
+    setBioDraft(userProfile?.bio || "");
     setBioEditing(true);
     setErrorMessage("");
     setStatusMessage("");
   }
 
+  function startNameEdit() {
+    setNameDraft(displayName);
+    setNameEditing(true);
+    setErrorMessage("");
+    setStatusMessage("");
+  }
+
+  function cancelNameEdit() {
+    setNameEditing(false);
+    setNameDraft("");
+    setErrorMessage("");
+  }
+
+  async function saveName() {
+    if (!user) return;
+
+    try {
+      setNameSaving(true);
+      setErrorMessage("");
+      setStatusMessage("");
+      await updateDisplayName(user.uid, nameDraft);
+      setNameEditing(false);
+      setStatusMessage("이름을 저장했습니다.");
+    } catch (error) {
+      console.error("Display name save error:", error);
+      setErrorMessage("이름을 저장하지 못했습니다.");
+    } finally {
+      setNameSaving(false);
+    }
+  }
+
   function cancelBioEdit() {
-    setBioDraft("");
     setBioEditing(false);
+    setBioDraft("");
     setErrorMessage("");
   }
 
@@ -215,7 +258,7 @@ export default function Home() {
       setBioSaving(true);
       setErrorMessage("");
       setStatusMessage("");
-      await updateUserBio(user.uid, bioDraft.trim());
+      await updateUserBio(user.uid, bioDraft);
       setBioEditing(false);
       setStatusMessage("자기소개를 저장했습니다.");
     } catch (error) {
@@ -235,7 +278,7 @@ export default function Home() {
     setStatusMessage("");
   }
 
-  async function handleAddSubmit(event: React.FormEvent<HTMLFormElement>) {
+  async function handleAddSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!user) return;
 
@@ -327,6 +370,14 @@ export default function Home() {
     }
   }
 
+  function handleLinkClick(linkId: string) {
+    if (!user) return;
+
+    void recordLinkClick(user.uid, linkId).catch((error) => {
+      console.error("Link click count error:", error);
+    });
+  }
+
   if (authLoading) {
     return (
       <main className="grid min-h-screen place-items-center bg-[#f7f8f8] px-5 text-[#111827]">
@@ -387,42 +438,52 @@ export default function Home() {
   return (
     <main className="min-h-screen bg-[#f7f8f8] px-5 py-6 text-[#111827] sm:px-8 sm:py-8">
       <header className="mx-auto mb-10 flex w-full max-w-[960px] items-center justify-between gap-3">
-        <p className="text-lg font-black text-[#6b7280]">MyLink</p>
+        <Link
+          href="/"
+          className="text-lg font-black text-[#6b7280] transition hover:text-[#2448e8]"
+        >
+          MyLink
+        </Link>
 
         <Menu.Root>
           <Menu.Trigger className="flex min-w-0 items-center gap-3 border border-transparent bg-transparent px-3 py-2 text-left transition hover:border-[#dcdfe4] hover:bg-white">
             <span className="hidden max-w-[180px] truncate text-base font-black text-[#111827] sm:block">
-              {userName}
+              {displayName}
             </span>
             <span className="grid h-9 w-9 place-items-center overflow-hidden rounded-full border border-[#dcdfe4] bg-white">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src={userAvatarUrl}
-                alt={`${userName} profile`}
+                src={avatarUrl}
+                alt={`${displayName} profile`}
                 className="h-full w-full object-cover"
               />
             </span>
-            <span className="text-sm font-black text-[#6b7280]">▾</span>
+            <span className="text-sm font-black text-[#6b7280]">v</span>
           </Menu.Trigger>
           <Menu.Portal>
             <Menu.Positioner sideOffset={8} align="end">
               <Menu.Popup className="z-50 w-72 border border-[#dcdfe4] bg-white p-2 shadow-[0_18px_48px_rgba(15,23,42,0.16)]">
                 <div className="border-b border-[#e5e7eb] px-3 py-3">
                   <p className="truncate text-sm font-black text-[#111827]">
-                    {userName}
+                    {displayName}
                   </p>
                   <p className="mt-1 truncate text-xs font-bold text-[#6b7280]">
                     {user.email}
                   </p>
                 </div>
-                <Menu.Item className="mt-2 block w-full px-3 py-2 text-left text-sm font-bold text-[#4b5563] outline-none data-[highlighted]:bg-[#f3f4f6]">
-                  계정정보
-                </Menu.Item>
                 <Menu.Item
                   onClick={() => void copyMyPageLink()}
-                  className="block w-full px-3 py-2 text-left text-sm font-bold text-[#4b5563] outline-none data-[highlighted]:bg-[#f3f4f6]"
+                  className="mt-2 block w-full px-3 py-2 text-left text-sm font-bold text-[#4b5563] outline-none data-[highlighted]:bg-[#f3f4f6]"
                 >
                   내 페이지 링크 복사
+                </Menu.Item>
+                <Menu.Item
+                  onClick={() => {
+                    window.location.href = "/stats";
+                  }}
+                  className="block w-full px-3 py-2 text-left text-sm font-bold text-[#4b5563] outline-none data-[highlighted]:bg-[#f3f4f6]"
+                >
+                  통계
                 </Menu.Item>
                 <Menu.Separator className="my-2 h-px bg-[#e5e7eb]" />
                 <Menu.Item
@@ -438,39 +499,84 @@ export default function Home() {
       </header>
 
       <section className="mx-auto flex w-full max-w-[640px] flex-col items-center">
-        <div className="mb-7 flex flex-col items-center text-center">
+        <div className="mb-7 flex w-full flex-col items-center text-center">
           <div className="mb-6 grid h-[108px] w-[108px] place-items-center overflow-hidden rounded-full border border-[#d6d9de] bg-white shadow-[0_16px_32px_rgba(15,23,42,0.14)]">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src={userAvatarUrl}
-              alt={`${userName} profile`}
+              src={avatarUrl}
+              alt={`${displayName} profile`}
               className="h-full w-full object-cover"
             />
           </div>
 
-          <h1 className="text-[28px] font-black leading-tight tracking-normal text-[#090d16] sm:text-[32px]">
-            {userName}
-          </h1>
-          <p className="mt-2 text-[17px] font-bold text-[#6b7280]">
-            {userHandle}
-          </p>
+          {nameEditing ? (
+            <form
+              onSubmit={(event) => {
+                event.preventDefault();
+                void saveName();
+              }}
+              className="flex w-full max-w-[520px] flex-col gap-3 sm:flex-row"
+            >
+              <input
+                type="text"
+                value={nameDraft}
+                onChange={(event) => setNameDraft(event.target.value)}
+                placeholder="표시 이름"
+                maxLength={40}
+                className="h-12 min-w-0 flex-1 border border-[#dcdfe4] bg-white px-4 text-center text-base font-semibold text-[#111827] outline-none transition focus:border-[#2448e8]"
+                autoFocus
+              />
+              <div className="grid grid-cols-2 gap-2 sm:flex">
+                <Button
+                  type="submit"
+                  disabled={nameSaving}
+                  className="h-12 bg-[#2448e8] px-4 text-sm font-black text-white transition hover:bg-[#1636c5] disabled:cursor-not-allowed disabled:bg-[#9ca3af]"
+                >
+                  {nameSaving ? "저장 중..." : "저장"}
+                </Button>
+                <Button
+                  type="button"
+                  onClick={cancelNameEdit}
+                  disabled={nameSaving}
+                  className="h-12 border border-[#dcdfe4] bg-white px-4 text-sm font-black text-[#4b5563] transition hover:bg-[#f3f4f6]"
+                >
+                  취소
+                </Button>
+              </div>
+            </form>
+          ) : (
+            <button
+              type="button"
+              onClick={startNameEdit}
+              className="text-[28px] font-black leading-tight tracking-normal text-[#090d16] transition hover:text-[#2448e8] sm:text-[32px]"
+            >
+              {displayName}
+            </button>
+          )}
+          <p className="mt-2 text-[17px] font-bold text-[#6b7280]">{handle}</p>
 
           {bioEditing ? (
-            <div className="mt-5 w-full max-w-[520px]">
+            <form
+              onSubmit={(event) => {
+                event.preventDefault();
+                void saveBio();
+              }}
+              className="mt-4 flex w-full max-w-[520px] flex-col gap-3 sm:flex-row"
+            >
               <input
                 type="text"
                 value={bioDraft}
                 onChange={(event) => setBioDraft(event.target.value)}
                 placeholder="한 줄 자기소개를 입력해주세요."
                 maxLength={80}
-                className="h-12 w-full border border-[#dcdfe4] bg-white px-4 text-center text-base font-semibold text-[#111827] outline-none transition focus:border-[#2448e8]"
+                className="h-12 min-w-0 flex-1 border border-[#dcdfe4] bg-white px-4 text-center text-base font-semibold text-[#111827] outline-none transition focus:border-[#2448e8]"
+                autoFocus
               />
-              <div className="mt-3 flex justify-center gap-2">
+              <div className="grid grid-cols-2 gap-2 sm:flex">
                 <Button
-                  type="button"
-                  onClick={() => void saveBio()}
+                  type="submit"
                   disabled={bioSaving}
-                  className="h-10 bg-[#2448e8] px-4 text-sm font-black text-white transition hover:bg-[#1636c5] disabled:cursor-not-allowed disabled:bg-[#9ca3af]"
+                  className="h-12 bg-[#2448e8] px-4 text-sm font-black text-white transition hover:bg-[#1636c5] disabled:cursor-not-allowed disabled:bg-[#9ca3af]"
                 >
                   {bioSaving ? "저장 중..." : "저장"}
                 </Button>
@@ -478,12 +584,12 @@ export default function Home() {
                   type="button"
                   onClick={cancelBioEdit}
                   disabled={bioSaving}
-                  className="h-10 border border-[#dcdfe4] bg-white px-4 text-sm font-black text-[#4b5563] transition hover:bg-[#f3f4f6]"
+                  className="h-12 border border-[#dcdfe4] bg-white px-4 text-sm font-black text-[#4b5563] transition hover:bg-[#f3f4f6]"
                 >
                   취소
                 </Button>
               </div>
-            </div>
+            </form>
           ) : (
             <button
               type="button"
@@ -634,6 +740,7 @@ export default function Home() {
                         href={link.url}
                         target="_blank"
                         rel="noopener noreferrer"
+                        onClick={() => handleLinkClick(link.id)}
                         className="flex min-w-0 flex-1 items-center gap-6"
                       >
                         <span className="grid h-12 w-12 flex-shrink-0 place-items-center rounded-full bg-[#f3f4f6]">
@@ -657,6 +764,9 @@ export default function Home() {
                               마지막 수정: {updatedAt}
                             </span>
                           )}
+                          <span className="mt-1 block truncate text-xs font-bold text-[#6b7280]">
+                            클릭 {link.clickCount ?? 0}회
+                          </span>
                         </span>
                       </a>
 
@@ -664,20 +774,20 @@ export default function Home() {
                         <Button
                           type="button"
                           onClick={() => startInlineEdit(link)}
-                          className="grid h-9 w-9 place-items-center text-xl transition hover:bg-[#eef2ff]"
+                          className="grid h-9 min-w-12 place-items-center text-sm font-black transition hover:bg-[#eef2ff]"
                           aria-label={`${link.title} 수정`}
                           title="수정"
                         >
-                          🖊️
+                          수정
                         </Button>
                         <Button
                           type="button"
                           onClick={() => openDeleteModal(link)}
-                          className="grid h-9 w-9 place-items-center text-xl transition hover:bg-red-50"
+                          className="grid h-9 min-w-12 place-items-center text-sm font-black transition hover:bg-red-50"
                           aria-label={`${link.title} 삭제`}
                           title="삭제"
                         >
-                          🗑️
+                          삭제
                         </Button>
                       </div>
                     </div>
@@ -687,6 +797,7 @@ export default function Home() {
             })
           )}
         </div>
+
       </section>
 
       <AlertDialog.Root
@@ -705,7 +816,7 @@ export default function Home() {
               <span>&quot;{deleteTarget?.title}&quot;</span> 링크가 삭제됩니다.
             </AlertDialog.Description>
             <p className="mt-4 border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-black text-amber-800">
-              ⚠️ 이 작업은 되돌릴 수 없습니다.
+              이 작업은 되돌릴 수 없습니다.
             </p>
 
             <div className="mt-6 grid grid-cols-2 gap-3">
