@@ -2,7 +2,7 @@ import { initializeApp, getApps, getApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
-import { getAnalytics, isSupported } from "firebase/analytics";
+import { getAnalytics, isSupported, type Analytics } from "firebase/analytics";
 
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
@@ -18,8 +18,13 @@ const firebaseConfig = {
 const isConfigValid = !!firebaseConfig.apiKey && firebaseConfig.apiKey !== "undefined";
 
 const activeConfig = isConfigValid ? firebaseConfig : {
-  ...firebaseConfig,
-  apiKey: "dummy-key-for-build-prerendering-protection"
+  apiKey: "dummy-key-for-build-prerendering-protection",
+  authDomain: "dummy-auth-domain-for-build",
+  projectId: "dummy-project-id-for-build",
+  storageBucket: "dummy-storage-bucket-for-build",
+  messagingSenderId: "dummy-sender-id",
+  appId: "dummy-app-id",
+  measurementId: "dummy-measurement-id"
 };
 
 // SSR(Server-Side Rendering) 환경 대응 및 중복 초기화 방지
@@ -31,7 +36,7 @@ const storage = getStorage(app);
 
 // Analytics는 브라우저 환경(window가 존재할 때)에서만 동작 가능하며,
 // Firebase Analytics가 지원되는 환경인지(isSupported) 체크 후 초기화합니다.
-let analytics: any = null;
+let analytics: Analytics | null = null;
 if (typeof window !== "undefined") {
   isSupported().then((supported) => {
     if (supported) {
