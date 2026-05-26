@@ -12,10 +12,17 @@ import {
   signOut,
   type User,
 } from "firebase/auth";
-import { collection, onSnapshot, orderBy, query } from "firebase/firestore";
+import { collection, doc, onSnapshot, orderBy, query } from "firebase/firestore";
 
 import { profile } from "@/data/profile";
-import { addLink, deleteLink, type LinkItem, updateLink } from "@/lib/db";
+import {
+  addLink,
+  deleteLink,
+  ensureUserProfile,
+  type LinkItem,
+  updateLink,
+  updateUserBio,
+} from "@/lib/db";
 import { auth, db } from "@/lib/firebase";
 
 type TimestampLike = {
@@ -57,6 +64,10 @@ export default function Home() {
   const [authLoading, setAuthLoading] = useState(true);
   const [links, setLinks] = useState<LinkItem[]>([]);
   const [loading, setLoading] = useState(false);
+  const [bio, setBio] = useState("");
+  const [bioDraft, setBioDraft] = useState("");
+  const [bioEditing, setBioEditing] = useState(false);
+  const [bioSaving, setBioSaving] = useState(false);
   const [addFormOpen, setAddFormOpen] = useState(false);
   const [newTitle, setNewTitle] = useState("");
   const [newUrl, setNewUrl] = useState("");
@@ -72,6 +83,7 @@ export default function Home() {
   const userName = user ? getDisplayName(user) : "";
   const userHandle = user ? getEmailHandle(user) : "";
   const userAvatarUrl = user?.photoURL || profile.avatarUrl;
+  const visibleBio = bio || "한 줄 자기소개를 입력해주세요.";
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
@@ -82,12 +94,41 @@ export default function Home() {
       setDeleteTarget(null);
       setErrorMessage("");
       setStatusMessage("");
+      setBio("");
+      setBioDraft("");
+      setBioEditing(false);
       setLinks([]);
       setLoading(Boolean(currentUser));
+
+      if (currentUser) {
+        void ensureUserProfile(currentUser.uid, {
+          displayName: currentUser.displayName,
+          email: currentUser.email,
+          photoURL: currentUser.photoURL,
+        });
+      }
     });
 
     return () => unsubscribe();
   }, []);
+
+  useEffect(() => {
+    if (!user) return;
+
+    const unsubscribe = onSnapshot(
+      doc(db, "users", user.uid),
+      (snapshot) => {
+        const nextBio = snapshot.data()?.bio;
+        setBio(typeof nextBio === "string" ? nextBio : "");
+      },
+      (error) => {
+        console.error("User profile loading error:", error);
+        setErrorMessage("프로필 정보를 불러오지 못했습니다.");
+      },
+    );
+
+    return () => unsubscribe();
+  }, [user]);
 
   useEffect(() => {
     if (!user) return;
@@ -101,9 +142,9 @@ export default function Home() {
       linksQuery,
       (snapshot) => {
         setLinks(
-          snapshot.docs.map((doc) => ({
-            id: doc.id,
-            ...doc.data(),
+          snapshot.docs.map((linkDoc) => ({
+            id: linkDoc.id,
+            ...linkDoc.data(),
           })) as LinkItem[],
         );
         setLoading(false);
@@ -151,6 +192,37 @@ export default function Home() {
       console.error("Copy link error:", error);
       setStatusMessage("");
       setErrorMessage("링크 복사에 실패했습니다.");
+    }
+  }
+
+  function startBioEdit() {
+    setBioDraft(bio);
+    setBioEditing(true);
+    setErrorMessage("");
+    setStatusMessage("");
+  }
+
+  function cancelBioEdit() {
+    setBioDraft("");
+    setBioEditing(false);
+    setErrorMessage("");
+  }
+
+  async function saveBio() {
+    if (!user) return;
+
+    try {
+      setBioSaving(true);
+      setErrorMessage("");
+      setStatusMessage("");
+      await updateUserBio(user.uid, bioDraft.trim());
+      setBioEditing(false);
+      setStatusMessage("자기소개를 저장했습니다.");
+    } catch (error) {
+      console.error("Bio save error:", error);
+      setErrorMessage("자기소개를 저장하지 못했습니다.");
+    } finally {
+      setBioSaving(false);
     }
   }
 
@@ -307,20 +379,6 @@ export default function Home() {
           >
             G&nbsp;&nbsp;Google로 시작하기
           </Button>
-
-          <div className="mt-24 w-full max-w-[640px] rotate-3 rounded-[24px] border border-[#e5e7eb] bg-white/80 p-5 text-left opacity-70 shadow-[0_26px_80px_rgba(15,23,42,0.12)]">
-            <div className="flex items-center gap-4">
-              <span className="h-12 w-12 rounded-full bg-[#e5e7eb]" />
-              <div className="grid flex-1 gap-3">
-                <span className="h-5 w-36 rounded bg-[#e5e7eb]" />
-                <span className="h-4 w-28 rounded bg-[#e5e7eb]" />
-              </div>
-            </div>
-            <div className="mt-8 grid gap-4">
-              <span className="h-14 rounded-2xl border border-[#bfdbfe] bg-[#dbeafe]" />
-              <span className="h-14 w-4/5 rounded-2xl border border-[#e5e7eb] bg-[#f3f4f6]" />
-            </div>
-          </div>
         </section>
       </main>
     );
@@ -396,9 +454,45 @@ export default function Home() {
           <p className="mt-2 text-[17px] font-bold text-[#6b7280]">
             {userHandle}
           </p>
-          <p className="mt-4 max-w-[430px] text-[18px] font-medium leading-8 text-[#374151] sm:text-[20px]">
-            {profile.role} <span className="mx-2">|</span> {profile.tagline}
-          </p>
+
+          {bioEditing ? (
+            <div className="mt-5 w-full max-w-[520px]">
+              <input
+                type="text"
+                value={bioDraft}
+                onChange={(event) => setBioDraft(event.target.value)}
+                placeholder="한 줄 자기소개를 입력해주세요."
+                maxLength={80}
+                className="h-12 w-full border border-[#dcdfe4] bg-white px-4 text-center text-base font-semibold text-[#111827] outline-none transition focus:border-[#2448e8]"
+              />
+              <div className="mt-3 flex justify-center gap-2">
+                <Button
+                  type="button"
+                  onClick={() => void saveBio()}
+                  disabled={bioSaving}
+                  className="h-10 bg-[#2448e8] px-4 text-sm font-black text-white transition hover:bg-[#1636c5] disabled:cursor-not-allowed disabled:bg-[#9ca3af]"
+                >
+                  {bioSaving ? "저장 중..." : "저장"}
+                </Button>
+                <Button
+                  type="button"
+                  onClick={cancelBioEdit}
+                  disabled={bioSaving}
+                  className="h-10 border border-[#dcdfe4] bg-white px-4 text-sm font-black text-[#4b5563] transition hover:bg-[#f3f4f6]"
+                >
+                  취소
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={startBioEdit}
+              className="mt-4 max-w-[520px] text-center text-[18px] font-medium leading-8 text-[#374151] transition hover:text-[#2448e8] sm:text-[20px]"
+            >
+              {visibleBio}
+            </button>
+          )}
         </div>
 
         <Button

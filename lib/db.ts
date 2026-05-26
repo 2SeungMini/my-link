@@ -4,6 +4,7 @@ import {
   deleteDoc,
   doc,
   serverTimestamp,
+  setDoc,
   updateDoc,
 } from "firebase/firestore";
 
@@ -16,6 +17,12 @@ export interface LinkItem {
   faviconUrl: string;
   createdAt: unknown;
   updatedAt?: unknown;
+}
+
+export interface UserProfileInput {
+  displayName: string | null;
+  email: string | null;
+  photoURL: string | null;
 }
 
 export function getFaviconUrl(url: string): string {
@@ -57,4 +64,32 @@ export async function updateLink(
 
 export async function deleteLink(userId: string, id: string) {
   await deleteDoc(doc(db, "users", userId, "links", id));
+}
+
+export async function updateUserBio(userId: string, bio: string) {
+  await setDoc(
+    doc(db, "users", userId),
+    {
+      bio,
+      updatedAt: serverTimestamp(),
+    },
+    { merge: true },
+  );
+}
+
+export async function ensureUserProfile(
+  userId: string,
+  profileInput: UserProfileInput,
+) {
+  await setDoc(
+    doc(db, "users", userId),
+    {
+      displayName: profileInput.displayName,
+      email: profileInput.email,
+      photoURL: profileInput.photoURL,
+      lastLoginAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    },
+    { merge: true },
+  );
 }
