@@ -1,28 +1,99 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { useEffect, useState } from "react";
+import { AlertDialog } from "@base-ui/react/alert-dialog";
+import { Button } from "@base-ui/react/button";
+import { Menu } from "@base-ui/react/menu";
+import {
+  GoogleAuthProvider,
+  onAuthStateChanged,
+  signInWithPopup,
+  signOut,
+  type User,
+} from "firebase/auth";
 import { collection, onSnapshot, orderBy, query } from "firebase/firestore";
 
 import { profile } from "@/data/profile";
 import { addLink, deleteLink, type LinkItem, updateLink } from "@/lib/db";
-import { db } from "@/lib/firebase";
+import { auth, db } from "@/lib/firebase";
 
-type FormMode = "add" | "edit";
+type TimestampLike = {
+  toDate: () => Date;
+};
+
+function formatUpdatedAt(value: unknown) {
+  if (!value) return null;
+
+  const date =
+    typeof value === "object" &&
+    value !== null &&
+    "toDate" in value &&
+    typeof (value as TimestampLike).toDate === "function"
+      ? (value as TimestampLike).toDate()
+      : value instanceof Date
+        ? value
+        : null;
+
+  if (!date) return null;
+
+  return new Intl.DateTimeFormat("ko-KR", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(date);
+}
+
+function getEmailHandle(user: User) {
+  const emailName = user.email?.split("@")[0];
+  return `@${emailName || user.uid.slice(0, 8)}`;
+}
+
+function getDisplayName(user: User) {
+  return user.displayName || user.email?.split("@")[0] || "사용자";
+}
 
 export default function Home() {
+  const [user, setUser] = useState<User | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
   const [links, setLinks] = useState<LinkItem[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [formOpen, setFormOpen] = useState(false);
-  const [formMode, setFormMode] = useState<FormMode>("add");
+  const [loading, setLoading] = useState(false);
+  const [addFormOpen, setAddFormOpen] = useState(false);
+  const [newTitle, setNewTitle] = useState("");
+  const [newUrl, setNewUrl] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [title, setTitle] = useState("");
-  const [url, setUrl] = useState("");
+  const [editTitle, setEditTitle] = useState("");
+  const [editUrl, setEditUrl] = useState("");
+  const [deleteTarget, setDeleteTarget] = useState<LinkItem | null>(null);
   const [errorMessage, setErrorMessage] = useState("");
+  const [statusMessage, setStatusMessage] = useState("");
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  const userName = user ? getDisplayName(user) : "";
+  const userHandle = user ? getEmailHandle(user) : "";
+  const userAvatarUrl = user?.photoURL || profile.avatarUrl;
 
   useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
+      setAuthLoading(false);
+      setAddFormOpen(false);
+      setEditingId(null);
+      setDeleteTarget(null);
+      setErrorMessage("");
+      setStatusMessage("");
+      setLinks([]);
+      setLoading(Boolean(currentUser));
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    if (!user) return;
+
     const linksQuery = query(
-      collection(db, "users", "anonymous", "links"),
+      collection(db, "users", user.uid, "links"),
       orderBy("createdAt", "desc"),
     );
 
@@ -45,164 +116,358 @@ export default function Home() {
     );
 
     return () => unsubscribe();
-  }, []);
+  }, [user]);
 
-  const formTitle = useMemo(
-    () => (formMode === "add" ? "새 링크 추가" : "링크 수정"),
-    [formMode],
-  );
+  async function handleGoogleLogin() {
+    try {
+      setErrorMessage("");
+      await signInWithPopup(auth, new GoogleAuthProvider());
+    } catch (error) {
+      console.error("Google login error:", error);
+      setErrorMessage("Google 로그인에 실패했습니다.");
+    }
+  }
 
-  function openAddForm() {
-    setFormMode("add");
+  async function handleLogout() {
+    try {
+      setErrorMessage("");
+      await signOut(auth);
+    } catch (error) {
+      console.error("Logout error:", error);
+      setErrorMessage("로그아웃에 실패했습니다.");
+    }
+  }
+
+  async function copyMyPageLink() {
+    if (!user) return;
+
+    const pageUrl = `${window.location.origin}/?user=${user.uid}`;
+
+    try {
+      await navigator.clipboard.writeText(pageUrl);
+      setErrorMessage("");
+      setStatusMessage("내 페이지 링크를 복사했습니다.");
+    } catch (error) {
+      console.error("Copy link error:", error);
+      setStatusMessage("");
+      setErrorMessage("링크 복사에 실패했습니다.");
+    }
+  }
+
+  function toggleAddForm() {
+    setAddFormOpen((open) => !open);
     setEditingId(null);
-    setTitle("");
-    setUrl("");
+    setEditTitle("");
+    setEditUrl("");
     setErrorMessage("");
-    setFormOpen((open) => !open || formMode === "edit");
+    setStatusMessage("");
   }
 
-  function openEditForm(link: LinkItem) {
-    setFormMode("edit");
-    setEditingId(link.id);
-    setTitle(link.title);
-    setUrl(link.url);
-    setErrorMessage("");
-    setFormOpen(true);
-  }
-
-  function closeForm() {
-    setFormOpen(false);
-    setEditingId(null);
-    setTitle("");
-    setUrl("");
-    setErrorMessage("");
-  }
-
-  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+  async function handleAddSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (!user) return;
 
-    if (!title.trim() || !url.trim()) {
-      setErrorMessage("제목과 URL을 모두 입력해주세요.");
+    if (!newTitle.trim() || !newUrl.trim()) {
+      setErrorMessage("제목과 주소를 모두 입력해주세요.");
       return;
     }
 
     try {
       setSaving(true);
       setErrorMessage("");
-
-      if (formMode === "edit" && editingId) {
-        await updateLink(editingId, title, url);
-      } else {
-        await addLink(title, url);
-      }
-
-      closeForm();
+      setStatusMessage("");
+      await addLink(user.uid, newTitle, newUrl);
+      setNewTitle("");
+      setNewUrl("");
+      setAddFormOpen(false);
     } catch (error) {
-      console.error("Error saving link:", error);
-      setErrorMessage("저장 중 오류가 발생했습니다.");
+      console.error("Error adding link:", error);
+      setErrorMessage("링크를 추가하지 못했습니다.");
     } finally {
       setSaving(false);
     }
   }
 
-  async function handleDelete(link: LinkItem) {
-    if (!confirm(`"${link.title}" 링크를 삭제할까요?`)) return;
+  function startInlineEdit(link: LinkItem) {
+    setAddFormOpen(false);
+    setEditingId(link.id);
+    setEditTitle(link.title);
+    setEditUrl(link.url);
+    setErrorMessage("");
+    setStatusMessage("");
+  }
+
+  function cancelInlineEdit() {
+    setEditingId(null);
+    setEditTitle("");
+    setEditUrl("");
+    setErrorMessage("");
+  }
+
+  async function saveInlineEdit(id: string) {
+    if (!user) return;
+
+    if (!editTitle.trim() || !editUrl.trim()) {
+      setErrorMessage("수정할 제목과 주소를 모두 입력해주세요.");
+      return;
+    }
 
     try {
+      setSaving(true);
       setErrorMessage("");
-      await deleteLink(link.id);
-      if (editingId === link.id) closeForm();
+      setStatusMessage("");
+      await updateLink(user.uid, id, editTitle, editUrl);
+      cancelInlineEdit();
     } catch (error) {
-      console.error("Error deleting link:", error);
-      setErrorMessage("삭제 중 오류가 발생했습니다.");
+      console.error("Error updating link:", error);
+      setErrorMessage("링크를 수정하지 못했습니다.");
+    } finally {
+      setSaving(false);
     }
   }
 
+  function openDeleteModal(link: LinkItem) {
+    setDeleteTarget(link);
+    setErrorMessage("");
+    setStatusMessage("");
+  }
+
+  function closeDeleteModal() {
+    if (deleting) return;
+    setDeleteTarget(null);
+  }
+
+  async function confirmDelete() {
+    if (!user || !deleteTarget) return;
+
+    try {
+      setDeleting(true);
+      setErrorMessage("");
+      setStatusMessage("");
+      await deleteLink(user.uid, deleteTarget.id);
+      if (editingId === deleteTarget.id) cancelInlineEdit();
+      setDeleteTarget(null);
+    } catch (error) {
+      console.error("Error deleting link:", error);
+      setErrorMessage("링크를 삭제하지 못했습니다.");
+    } finally {
+      setDeleting(false);
+    }
+  }
+
+  if (authLoading) {
+    return (
+      <main className="grid min-h-screen place-items-center bg-[#f7f8f8] px-5 text-[#111827]">
+        <p className="text-lg font-black text-[#6b7280]">MyLink 준비 중...</p>
+      </main>
+    );
+  }
+
+  if (!user) {
+    return (
+      <main className="min-h-screen overflow-hidden bg-[#f7f8f8] text-[#111827]">
+        <header className="flex h-14 items-center justify-between border-b border-[#e5e7eb] bg-white px-4 sm:px-6">
+          <Link
+            href="/"
+            className="font-mono text-xl font-black text-[#1648e8] underline decoration-2"
+          >
+            Link
+          </Link>
+          <Button
+            type="button"
+            onClick={() => void handleGoogleLogin()}
+            className="h-9 border border-[#1636c5] bg-[#2448e8] px-4 text-sm font-black text-white shadow-[0_3px_0_#162fb0] transition hover:-translate-y-0.5 hover:shadow-[0_5px_0_#162fb0]"
+          >
+            로그인
+          </Button>
+        </header>
+
+        <section className="mx-auto flex max-w-[920px] flex-col items-center px-5 pt-20 text-center sm:pt-24">
+          <h1 className="font-mono text-[48px] font-black leading-[1.05] tracking-normal text-[#111827] sm:text-[72px]">
+            Development in <span className="text-[#1557ff]">One</span>
+            <br />
+            <span className="text-[#1557ff]">Link</span>.
+          </h1>
+          <p className="mt-8 font-mono text-xl leading-9 text-[#374151] sm:text-2xl">
+            GitHub, 블로그, 포트폴리오까지.
+            <br />
+            개발자를 위한 모든 링크를 한 페이지에 담아보세요.
+          </p>
+
+          {errorMessage && (
+            <p className="mt-8 w-full max-w-[520px] border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700">
+              {errorMessage}
+            </p>
+          )}
+
+          <Button
+            type="button"
+            onClick={() => void handleGoogleLogin()}
+            className="mt-12 h-14 w-full max-w-[520px] border border-[#1636c5] bg-[#2448e8] font-mono text-lg font-black text-white shadow-[0_5px_0_#162fb0] transition hover:-translate-y-0.5 hover:shadow-[0_7px_0_#162fb0] active:translate-y-1 active:shadow-none"
+          >
+            G&nbsp;&nbsp;Google로 시작하기
+          </Button>
+
+          <div className="mt-24 w-full max-w-[640px] rotate-3 rounded-[24px] border border-[#e5e7eb] bg-white/80 p-5 text-left opacity-70 shadow-[0_26px_80px_rgba(15,23,42,0.12)]">
+            <div className="flex items-center gap-4">
+              <span className="h-12 w-12 rounded-full bg-[#e5e7eb]" />
+              <div className="grid flex-1 gap-3">
+                <span className="h-5 w-36 rounded bg-[#e5e7eb]" />
+                <span className="h-4 w-28 rounded bg-[#e5e7eb]" />
+              </div>
+            </div>
+            <div className="mt-8 grid gap-4">
+              <span className="h-14 rounded-2xl border border-[#bfdbfe] bg-[#dbeafe]" />
+              <span className="h-14 w-4/5 rounded-2xl border border-[#e5e7eb] bg-[#f3f4f6]" />
+            </div>
+          </div>
+        </section>
+      </main>
+    );
+  }
+
   return (
-    <main className="min-h-screen bg-[#f7f8f8] px-5 py-14 text-[#111827] sm:px-8">
+    <main className="min-h-screen bg-[#f7f8f8] px-5 py-6 text-[#111827] sm:px-8 sm:py-8">
+      <header className="mx-auto mb-10 flex w-full max-w-[960px] items-center justify-between gap-3">
+        <p className="text-lg font-black text-[#6b7280]">MyLink</p>
+
+        <Menu.Root>
+          <Menu.Trigger className="flex min-w-0 items-center gap-3 border border-transparent bg-transparent px-3 py-2 text-left transition hover:border-[#dcdfe4] hover:bg-white">
+            <span className="hidden max-w-[180px] truncate text-base font-black text-[#111827] sm:block">
+              {userName}
+            </span>
+            <span className="grid h-9 w-9 place-items-center overflow-hidden rounded-full border border-[#dcdfe4] bg-white">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={userAvatarUrl}
+                alt={`${userName} profile`}
+                className="h-full w-full object-cover"
+              />
+            </span>
+            <span className="text-sm font-black text-[#6b7280]">▾</span>
+          </Menu.Trigger>
+          <Menu.Portal>
+            <Menu.Positioner sideOffset={8} align="end">
+              <Menu.Popup className="z-50 w-72 border border-[#dcdfe4] bg-white p-2 shadow-[0_18px_48px_rgba(15,23,42,0.16)]">
+                <div className="border-b border-[#e5e7eb] px-3 py-3">
+                  <p className="truncate text-sm font-black text-[#111827]">
+                    {userName}
+                  </p>
+                  <p className="mt-1 truncate text-xs font-bold text-[#6b7280]">
+                    {user.email}
+                  </p>
+                </div>
+                <Menu.Item className="mt-2 block w-full px-3 py-2 text-left text-sm font-bold text-[#4b5563] outline-none data-[highlighted]:bg-[#f3f4f6]">
+                  계정정보
+                </Menu.Item>
+                <Menu.Item
+                  onClick={() => void copyMyPageLink()}
+                  className="block w-full px-3 py-2 text-left text-sm font-bold text-[#4b5563] outline-none data-[highlighted]:bg-[#f3f4f6]"
+                >
+                  내 페이지 링크 복사
+                </Menu.Item>
+                <Menu.Separator className="my-2 h-px bg-[#e5e7eb]" />
+                <Menu.Item
+                  onClick={() => void handleLogout()}
+                  className="block w-full px-3 py-2 text-left text-sm font-black text-red-600 outline-none data-[highlighted]:bg-red-50"
+                >
+                  로그아웃
+                </Menu.Item>
+              </Menu.Popup>
+            </Menu.Positioner>
+          </Menu.Portal>
+        </Menu.Root>
+      </header>
+
       <section className="mx-auto flex w-full max-w-[640px] flex-col items-center">
         <div className="mb-7 flex flex-col items-center text-center">
           <div className="mb-6 grid h-[108px] w-[108px] place-items-center overflow-hidden rounded-full border border-[#d6d9de] bg-white shadow-[0_16px_32px_rgba(15,23,42,0.14)]">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src={profile.avatarUrl}
-              alt={`${profile.name} profile`}
+              src={userAvatarUrl}
+              alt={`${userName} profile`}
               className="h-full w-full object-cover"
             />
           </div>
 
           <h1 className="text-[28px] font-black leading-tight tracking-normal text-[#090d16] sm:text-[32px]">
-            {profile.name}
+            {userName}
           </h1>
           <p className="mt-2 text-[17px] font-bold text-[#6b7280]">
-            {profile.handle}
+            {userHandle}
           </p>
           <p className="mt-4 max-w-[430px] text-[18px] font-medium leading-8 text-[#374151] sm:text-[20px]">
             {profile.role} <span className="mx-2">|</span> {profile.tagline}
           </p>
         </div>
 
-        <button
+        <Button
           type="button"
-          onClick={openAddForm}
+          onClick={toggleAddForm}
           className="mb-5 h-14 w-full border border-[#1636c5] bg-[#2448e8] text-[19px] font-black text-white shadow-[0_4px_0_#162fb0] transition hover:-translate-y-0.5 hover:shadow-[0_6px_0_#162fb0] active:translate-y-1 active:shadow-none sm:text-[21px]"
         >
           + 새로운 링크 추가하기
-        </button>
+        </Button>
 
-        {formOpen && (
+        {statusMessage && (
+          <p className="mb-5 w-full border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-700">
+            {statusMessage}
+          </p>
+        )}
+
+        {errorMessage && (
+          <p className="mb-5 w-full border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700">
+            {errorMessage}
+          </p>
+        )}
+
+        {addFormOpen && (
           <form
-            onSubmit={handleSubmit}
+            onSubmit={handleAddSubmit}
             className="mb-5 w-full border border-[#dcdfe4] bg-white p-5 shadow-[0_10px_24px_rgba(15,23,42,0.06)]"
           >
             <div className="mb-4 flex items-center justify-between gap-3">
-              <h2 className="text-lg font-black">{formTitle}</h2>
-              <button
+              <h2 className="text-lg font-black">새 링크 추가</h2>
+              <Button
                 type="button"
-                onClick={closeForm}
+                onClick={toggleAddForm}
                 className="text-sm font-bold text-[#6b7280] hover:text-[#111827]"
               >
-                닫기
-              </button>
+                취소
+              </Button>
             </div>
 
             <div className="grid gap-3">
               <label className="grid gap-1 text-sm font-bold text-[#4b5563]">
-                링크 이름
+                제목
                 <input
                   type="text"
-                  value={title}
-                  onChange={(event) => setTitle(event.target.value)}
+                  value={newTitle}
+                  onChange={(event) => setNewTitle(event.target.value)}
                   placeholder="구글"
                   className="h-12 border border-[#dcdfe4] bg-[#fbfbfc] px-4 text-base font-semibold text-[#111827] outline-none transition focus:border-[#2448e8] focus:bg-white"
                 />
               </label>
 
               <label className="grid gap-1 text-sm font-bold text-[#4b5563]">
-                URL
+                주소
                 <input
                   type="text"
-                  value={url}
-                  onChange={(event) => setUrl(event.target.value)}
+                  value={newUrl}
+                  onChange={(event) => setNewUrl(event.target.value)}
                   placeholder="https://google.com"
                   className="h-12 border border-[#dcdfe4] bg-[#fbfbfc] px-4 text-base font-semibold text-[#111827] outline-none transition focus:border-[#2448e8] focus:bg-white"
                 />
               </label>
             </div>
 
-            {errorMessage && (
-              <p className="mt-3 border border-red-200 bg-red-50 px-3 py-2 text-sm font-bold text-red-700">
-                {errorMessage}
-              </p>
-            )}
-
-            <button
+            <Button
               type="submit"
               disabled={saving}
               className="mt-4 h-12 w-full bg-[#111827] text-base font-black text-white transition hover:bg-[#2448e8] disabled:cursor-not-allowed disabled:bg-[#9ca3af]"
             >
-              {saving ? "저장 중..." : formMode === "add" ? "추가하기" : "수정 완료"}
-            </button>
+              {saving ? "저장 중..." : "추가하기"}
+            </Button>
           </form>
         )}
 
@@ -214,59 +479,162 @@ export default function Home() {
           ) : links.length === 0 ? (
             <div className="grid min-h-[120px] place-items-center border border-dashed border-[#cfd4dc] bg-white px-6 text-center text-base font-bold leading-7 text-[#6b7280]">
               아직 등록된 링크가 없습니다.
-              <br />
-              위 버튼으로 첫 링크를 추가해보세요.
+              <br />위 버튼으로 첫 링크를 추가해보세요.
             </div>
           ) : (
-            links.map((link) => (
-              <article
-                key={link.id}
-                className="group flex min-h-[120px] items-center border border-[#dcdfe4] bg-white px-5 transition hover:border-[#2448e8] hover:shadow-[0_10px_24px_rgba(15,23,42,0.08)] sm:px-7"
-              >
-                <a
-                  href={link.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex min-w-0 flex-1 items-center gap-6"
-                >
-                  <span className="grid h-12 w-12 flex-shrink-0 place-items-center rounded-full bg-[#f3f4f6]">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={link.faviconUrl}
-                      alt=""
-                      className="h-8 w-8"
-                      onError={(event) => {
-                        event.currentTarget.src =
-                          "https://www.google.com/s2/favicons?domain=github.com&sz=64";
-                      }}
-                    />
-                  </span>
-                  <span className="truncate text-center text-[18px] font-bold text-[#111827] sm:text-[20px]">
-                    {link.title}
-                  </span>
-                </a>
+            links.map((link) => {
+              const isEditing = editingId === link.id;
+              const updatedAt = formatUpdatedAt(link.updatedAt);
 
-                <div className="ml-4 flex flex-shrink-0 items-center gap-2 opacity-100 sm:opacity-0 sm:transition sm:group-hover:opacity-100">
-                  <button
-                    type="button"
-                    onClick={() => openEditForm(link)}
-                    className="h-9 px-3 text-sm font-black text-[#2448e8] hover:bg-[#eef2ff]"
-                  >
-                    수정
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void handleDelete(link)}
-                    className="h-9 px-3 text-sm font-black text-red-600 hover:bg-red-50"
-                  >
-                    삭제
-                  </button>
-                </div>
-              </article>
-            ))
+              return (
+                <article
+                  key={link.id}
+                  className="group min-h-[120px] border border-[#dcdfe4] bg-white px-5 py-5 transition hover:border-[#2448e8] hover:shadow-[0_10px_24px_rgba(15,23,42,0.08)] sm:px-7"
+                >
+                  {isEditing ? (
+                    <div className="grid gap-3">
+                      <div className="grid gap-3 sm:grid-cols-[1fr_1.3fr]">
+                        <label className="grid gap-1 text-sm font-bold text-[#4b5563]">
+                          제목
+                          <input
+                            type="text"
+                            value={editTitle}
+                            onChange={(event) => setEditTitle(event.target.value)}
+                            className="h-11 border border-[#dcdfe4] bg-[#fbfbfc] px-3 text-base font-semibold text-[#111827] outline-none transition focus:border-[#2448e8] focus:bg-white"
+                          />
+                        </label>
+
+                        <label className="grid gap-1 text-sm font-bold text-[#4b5563]">
+                          주소
+                          <input
+                            type="text"
+                            value={editUrl}
+                            onChange={(event) => setEditUrl(event.target.value)}
+                            className="h-11 border border-[#dcdfe4] bg-[#fbfbfc] px-3 text-base font-semibold text-[#111827] outline-none transition focus:border-[#2448e8] focus:bg-white"
+                          />
+                        </label>
+                      </div>
+
+                      <div className="flex justify-end gap-2">
+                        <Button
+                          type="button"
+                          onClick={() => void saveInlineEdit(link.id)}
+                          disabled={saving}
+                          className="h-10 bg-[#2448e8] px-4 text-sm font-black text-white transition hover:bg-[#1636c5] disabled:cursor-not-allowed disabled:bg-[#9ca3af]"
+                        >
+                          저장
+                        </Button>
+                        <Button
+                          type="button"
+                          onClick={cancelInlineEdit}
+                          disabled={saving}
+                          className="h-10 border border-[#dcdfe4] bg-white px-4 text-sm font-black text-[#4b5563] transition hover:bg-[#f3f4f6]"
+                        >
+                          취소
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex items-center">
+                      <a
+                        href={link.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex min-w-0 flex-1 items-center gap-6"
+                      >
+                        <span className="grid h-12 w-12 flex-shrink-0 place-items-center rounded-full bg-[#f3f4f6]">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={link.faviconUrl}
+                            alt=""
+                            className="h-8 w-8"
+                            onError={(event) => {
+                              event.currentTarget.src =
+                                "https://www.google.com/s2/favicons?domain=github.com&sz=64";
+                            }}
+                          />
+                        </span>
+                        <span className="min-w-0">
+                          <span className="block truncate text-[18px] font-bold text-[#111827] sm:text-[20px]">
+                            {link.title}
+                          </span>
+                          {updatedAt && (
+                            <span className="mt-1 block truncate text-xs font-bold text-[#6b7280]">
+                              마지막 수정: {updatedAt}
+                            </span>
+                          )}
+                        </span>
+                      </a>
+
+                      <div className="ml-4 flex flex-shrink-0 items-center gap-2 opacity-100 sm:opacity-0 sm:transition sm:group-hover:opacity-100">
+                        <Button
+                          type="button"
+                          onClick={() => startInlineEdit(link)}
+                          className="grid h-9 w-9 place-items-center text-xl transition hover:bg-[#eef2ff]"
+                          aria-label={`${link.title} 수정`}
+                          title="수정"
+                        >
+                          🖊️
+                        </Button>
+                        <Button
+                          type="button"
+                          onClick={() => openDeleteModal(link)}
+                          className="grid h-9 w-9 place-items-center text-xl transition hover:bg-red-50"
+                          aria-label={`${link.title} 삭제`}
+                          title="삭제"
+                        >
+                          🗑️
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </article>
+              );
+            })
           )}
         </div>
       </section>
+
+      <AlertDialog.Root
+        open={Boolean(deleteTarget)}
+        onOpenChange={(open) => {
+          if (!open) closeDeleteModal();
+        }}
+      >
+        <AlertDialog.Portal>
+          <AlertDialog.Backdrop className="fixed inset-0 z-50 bg-black/45" />
+          <AlertDialog.Popup className="fixed left-1/2 top-1/2 z-50 w-[calc(100vw-2.5rem)] max-w-[420px] -translate-x-1/2 -translate-y-1/2 border border-[#dcdfe4] bg-white p-6 shadow-[0_24px_60px_rgba(15,23,42,0.25)]">
+            <AlertDialog.Title className="text-xl font-black text-[#111827]">
+              정말 삭제하시겠습니까?
+            </AlertDialog.Title>
+            <AlertDialog.Description className="mt-3 text-base font-semibold leading-7 text-[#4b5563]">
+              <span>&quot;{deleteTarget?.title}&quot;</span> 링크가 삭제됩니다.
+            </AlertDialog.Description>
+            <p className="mt-4 border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-black text-amber-800">
+              ⚠️ 이 작업은 되돌릴 수 없습니다.
+            </p>
+
+            <div className="mt-6 grid grid-cols-2 gap-3">
+              <Button
+                type="button"
+                onClick={closeDeleteModal}
+                disabled={deleting}
+                className="h-12 border border-[#dcdfe4] bg-white text-base font-black text-[#4b5563] transition hover:bg-[#f3f4f6] disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                취소
+              </Button>
+              <Button
+                type="button"
+                onClick={() => void confirmDelete()}
+                disabled={deleting}
+                className="h-12 bg-red-600 text-base font-black text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-red-300"
+              >
+                {deleting ? "삭제 중..." : "삭제하기"}
+              </Button>
+            </div>
+          </AlertDialog.Popup>
+        </AlertDialog.Portal>
+      </AlertDialog.Root>
     </main>
   );
 }

@@ -15,6 +15,7 @@ export interface LinkItem {
   url: string;
   faviconUrl: string;
   createdAt: unknown;
+  updatedAt?: unknown;
 }
 
 export function getFaviconUrl(url: string): string {
@@ -26,27 +27,34 @@ export function getFaviconUrl(url: string): string {
   }
 }
 
-export async function addLink(title: string, url: string) {
+export async function addLink(userId: string, title: string, url: string) {
   const formattedUrl = url.startsWith("http") ? url : `https://${url}`;
 
-  await addDoc(collection(db, "users", "anonymous", "links"), {
+  await addDoc(collection(db, "users", userId, "links"), {
     title,
     url: formattedUrl,
     faviconUrl: getFaviconUrl(formattedUrl),
     createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
   });
 }
 
-export async function updateLink(id: string, title: string, url: string) {
+export async function updateLink(
+  userId: string,
+  id: string,
+  title: string,
+  url: string,
+) {
   const formattedUrl = url.startsWith("http") ? url : `https://${url}`;
 
-  await updateDoc(doc(db, "users", "anonymous", "links", id), {
+  await updateDoc(doc(db, "users", userId, "links", id), {
     title,
     url: formattedUrl,
     faviconUrl: getFaviconUrl(formattedUrl),
+    updatedAt: serverTimestamp(),
   });
 }
 
-export async function deleteLink(id: string) {
-  await deleteDoc(doc(db, "users", "anonymous", "links", id));
+export async function deleteLink(userId: string, id: string) {
+  await deleteDoc(doc(db, "users", userId, "links", id));
 }
