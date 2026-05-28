@@ -59,6 +59,164 @@ function getFallbackDisplayName(user: User) {
   return user.displayName || user.email?.split("@")[0] || "사용자";
 }
 
+function LandingPage({
+  errorMessage,
+  onLogin,
+}: {
+  errorMessage: string;
+  onLogin: () => void;
+}) {
+  return (
+    <main className="min-h-screen overflow-hidden bg-[#f7f8f8] text-[#111827]">
+      <header className="sticky top-0 z-30 border-b border-[#e5e7eb] bg-white/95 backdrop-blur">
+        <div className="mx-auto flex h-16 max-w-[1120px] items-center justify-between px-5 sm:px-8">
+          <Link href="/" className="text-xl font-black text-[#1557ff]">
+            MyLink
+          </Link>
+          <Button
+            type="button"
+            onClick={onLogin}
+            className="h-10 border border-[#1636c5] bg-[#2448e8] px-4 text-sm font-black text-white shadow-[0_3px_0_#162fb0]"
+          >
+            로그인
+          </Button>
+        </div>
+      </header>
+
+      <section className="mx-auto grid max-w-[1120px] gap-10 px-5 py-14 sm:px-8 sm:py-20 lg:grid-cols-[1fr_420px] lg:items-center">
+        <div>
+          <p className="text-sm font-black uppercase tracking-[0.18em] text-[#1557ff]">
+            Link management for developers
+          </p>
+          <h1 className="mt-5 text-[44px] font-black leading-[1.05] tracking-normal text-[#111827] sm:text-[68px]">
+            개발자의 모든 링크를
+            <br />
+            <span className="text-[#1557ff]">한 페이지</span>에.
+          </h1>
+          <p className="mt-7 max-w-[620px] text-lg font-semibold leading-8 text-[#4b5563] sm:text-xl">
+            GitHub, 블로그, 포트폴리오, 프로젝트 링크를 깔끔하게 모으고
+            클릭 통계까지 확인하세요.
+          </p>
+          {errorMessage && (
+            <p className="mt-7 max-w-[560px] border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700">
+              {errorMessage}
+            </p>
+          )}
+          <div className="mt-9 flex flex-col gap-3 sm:flex-row">
+            <Button
+              type="button"
+              onClick={onLogin}
+              className="h-14 border border-[#1636c5] bg-[#2448e8] px-7 text-base font-black text-white shadow-[0_5px_0_#162fb0]"
+            >
+              Google로 시작하기
+            </Button>
+            <a
+              href="#features"
+              className="inline-flex h-14 items-center justify-center border border-[#dcdfe4] bg-white px-7 text-base font-black text-[#4b5563]"
+            >
+              기능 보기
+            </a>
+          </div>
+        </div>
+
+        <div className="border border-[#dcdfe4] bg-white p-5 shadow-[0_18px_48px_rgba(15,23,42,0.12)]">
+          <div className="flex items-center gap-4 border-b border-[#e5e7eb] pb-5">
+            <div className="h-14 w-14 rounded-full bg-[#ff914d]" />
+            <div className="min-w-0">
+              <p className="text-xl font-black">이승민</p>
+              <p className="mt-1 text-sm font-bold text-[#6b7280]">
+                @2seungmin21
+              </p>
+            </div>
+          </div>
+          <div className="mt-5 grid gap-3">
+            {["GitHub", "내 블로그", "포트폴리오"].map((title, index) => (
+              <div
+                key={title}
+                className="flex h-16 items-center justify-between border border-[#e5e7eb] bg-[#fbfbfc] px-4"
+              >
+                <span className="font-black">{title}</span>
+                <span className="text-sm font-black text-[#1557ff]">
+                  {12 - index * 3} 클릭
+                </span>
+              </div>
+            ))}
+          </div>
+          <Button
+            type="button"
+            onClick={onLogin}
+            className="mt-5 h-12 w-full border border-[#1636c5] bg-[#2448e8] text-base font-black text-white shadow-[0_4px_0_#162fb0]"
+          >
+            내 링크 만들기
+          </Button>
+        </div>
+      </section>
+
+      <section id="features" className="border-y border-[#e5e7eb] bg-white px-5 py-12 sm:px-8">
+        <div className="mx-auto grid max-w-[1120px] gap-4 md:grid-cols-3">
+          {[
+            ["링크 관리", "자주 쓰는 링크를 한 화면에서 추가, 수정, 삭제하세요."],
+            ["클릭 통계", "링크별 클릭수와 인기 링크를 대시보드에서 확인하세요."],
+            ["개인 URL", "이메일 앞부분 기반의 나만의 공개 페이지를 공유하세요."],
+          ].map(([title, text]) => (
+            <article key={title} className="border border-[#dcdfe4] bg-[#fbfbfc] p-6">
+              <h2 className="text-xl font-black">{title}</h2>
+              <p className="mt-4 text-sm font-semibold leading-6 text-[#6b7280]">
+                {text}
+              </p>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <section className="mx-auto grid max-w-[1120px] gap-8 px-5 py-14 sm:px-8 lg:grid-cols-[0.9fr_1.1fr] lg:items-center">
+        <div>
+          <h2 className="text-[32px] font-black leading-tight text-[#111827] sm:text-[44px]">
+            만들고, 공유하고,
+            <br />
+            성과를 확인하세요.
+          </h2>
+          <p className="mt-5 text-base font-semibold leading-8 text-[#6b7280]">
+            로그인 후 바로 링크를 등록하고 공개 페이지를 복사할 수 있습니다.
+            통계 페이지에서는 어떤 링크가 가장 많이 클릭되는지 볼 수 있어요.
+          </p>
+        </div>
+        <div className="border border-[#dcdfe4] bg-white p-5 shadow-[0_12px_32px_rgba(15,23,42,0.08)]">
+          <div className="mb-5 flex items-end justify-between">
+            <div>
+              <p className="text-sm font-black text-[#6b7280]">통계 미리보기</p>
+              <p className="mt-2 text-3xl font-black text-[#1557ff]">총 234 클릭</p>
+            </div>
+            <span className="text-sm font-black text-[#6b7280]">3개 링크</span>
+          </div>
+          <div className="flex h-[180px] items-end gap-4 border-b border-l border-[#e5e7eb] px-4">
+            {[55, 120, 86].map((height, index) => (
+              <div key={height} className="flex flex-1 flex-col items-center justify-end gap-3">
+                <div className="w-full max-w-[70px] rounded-t-md bg-[#8fa0b8]" style={{ height }} />
+                <span className="text-xs font-bold text-[#6b7280]">링크 {index + 1}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <footer className="border-t border-[#e5e7eb] bg-white px-5 py-8 sm:px-8">
+        <div className="mx-auto flex max-w-[1120px] flex-col gap-4 text-sm font-bold text-[#6b7280] sm:flex-row sm:items-center sm:justify-between">
+          <p>한양대학교 바이브 코딩</p>
+          <a
+            href="https://github.com/2SeungMini/my-link"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-[#1557ff]"
+          >
+            GitHub
+          </a>
+        </div>
+      </footer>
+    </main>
+  );
+}
+
 export default function Home() {
   const [user, setUser] = useState<User | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
@@ -387,6 +545,13 @@ export default function Home() {
   }
 
   if (!user) {
+    return (
+      <LandingPage
+        errorMessage={errorMessage}
+        onLogin={() => void handleGoogleLogin()}
+      />
+    );
+
     return (
       <main className="min-h-screen overflow-hidden bg-[#f7f8f8] text-[#111827]">
         <header className="flex h-14 items-center justify-between border-b border-[#e5e7eb] bg-white px-4 sm:px-6">
