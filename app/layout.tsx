@@ -23,13 +23,13 @@ export const metadata: Metadata = {
     title: "MyLink",
     description: "A personal link portfolio powered by Firebase Firestore.",
     siteName: "MyLink",
-    images: [{ url: "/og-image", width: 1200, height: 630, alt: "MyLink" }],
+    images: [{ url: "/og.png", width: 1200, height: 630, alt: "MyLink" }],
   },
   twitter: {
     card: "summary_large_image",
     title: "MyLink",
     description: "A personal link portfolio powered by Firebase Firestore.",
-    images: ["/og-image"],
+    images: ["/og.png"],
   },
 }
 
