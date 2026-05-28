@@ -12,11 +12,14 @@ const fontMono = Geist_Mono({
   variable: "--font-mono",
 })
 
+const siteUrl =
+  process.env.NEXT_PUBLIC_SITE_URL ||
+  (process.env.VERCEL === "1"
+    ? "https://my-link-ashy.vercel.app"
+    : "http://localhost:3000");
+
 export const metadata: Metadata = {
-  metadataBase: new URL(
-    process.env.NEXT_PUBLIC_SITE_URL ||
-      (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000"),
-  ),
+  metadataBase: new URL(siteUrl),
   title: "MyLink",
   description: "A personal link portfolio powered by Firebase Firestore.",
   openGraph: {
